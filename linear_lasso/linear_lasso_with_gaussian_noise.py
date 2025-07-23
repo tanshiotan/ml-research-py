@@ -83,7 +83,7 @@ lambda_seq = np.logspace(-2, 1, 100) # 0.01から10までを対数スケール�
 r = len(lambda_seq)
 
 # 加えるノイズの分散を決める
-noise_variance_value = 0.01 
+noise_variance_value = 0.5
 
 # 計算結果を保存する配列
 coef_seq_noise = np.zeros((r, p))
