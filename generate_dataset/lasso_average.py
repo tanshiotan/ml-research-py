@@ -62,12 +62,8 @@ def linear_lasso(X, y, lam=0, beta=None, eta=None):
     
     X_std, y_std, X_bar, X_sd, y_bar = centralize(X, y)
     
-    # ノイズを標準化に合わせて変換
     if eta is None:
-        eta_scaled = np.zeros((p, n))
-    else:
-        # 元のスケールのノイズを標準化後のスケールに変換
-        eta_scaled = eta / X_sd[:, np.newaxis]
+        eta = np.zeros((p, n))
 
     max_iter = 500
     for i in range(max_iter):
@@ -75,7 +71,7 @@ def linear_lasso(X, y, lam=0, beta=None, eta=None):
         
         for j in range(p):
             r_j = y_std - (np.dot(X_std, beta) - X_std[:, j] * beta[j])
-            z = np.dot(X_std[:, j], r_j - eta_scaled[j]) / n
+            z = np.dot(X_std[:, j], r_j - eta[j]) / n
             beta[j] = soft_th(lam, z)
             
         eps = np.linalg.norm(beta - beta_old, 2)
@@ -198,7 +194,7 @@ if __name__ == "__main__":
     p = 200              # 特徴量の次元
     rho = 0.1            # スパース率
     n_experiments = 50   # 実験回数
-    noise_variance_value = 0.1  # プライバシーノイズの分散
+    noise_variance_value = 10  # プライバシーノイズの分散
     
     lambda_seq = np.logspace(-2, 1, 50)
     
