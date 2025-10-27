@@ -102,11 +102,16 @@ def compute_prediction_error(beta_true, beta_est):
     return np.sum((beta_true - beta_est)**2)
 
 # ===================================================================
-# 4. 単一実験の実行
+# 4. 単一実験の実行（固定ノイズ使用）
 # ===================================================================
-def run_single_experiment(n, p, rho, lambda_seq, noise_variance_value):
+def run_single_experiment_fixed_noise(n, p, rho, lambda_seq, fixed_eta):
     """
-    単一のランダムデータセットに対してLASSO実験を実行
+    固定されたノイズetaを使用して、1つのランダムデータセットに対してLASSO実験を実行
+    
+    Parameters:
+    -----------
+    fixed_eta : ndarray
+        固定されたプライバシーノイズ (p, n)
     
     Returns:
     --------
@@ -121,10 +126,6 @@ def run_single_experiment(n, p, rho, lambda_seq, noise_variance_value):
     pred_error_no_noise = np.zeros(r)
     pred_error_with_noise = np.zeros(r)
     
-    # プライバシーノイズ生成
-    noise_std_dev = np.sqrt(noise_variance_value)
-    eta = np.random.normal(loc=0, scale=noise_std_dev, size=(p, n))
-    
     # 各λについて計算
     for i, lam in enumerate(lambda_seq):
         # ノイズなし
@@ -132,19 +133,19 @@ def run_single_experiment(n, p, rho, lambda_seq, noise_variance_value):
         train_error_no_noise[i] = compute_training_error(X, y, beta_est_no_noise, beta_0_no_noise)
         pred_error_no_noise[i] = compute_prediction_error(beta0_true, beta_est_no_noise)
         
-        # ノイズあり
-        beta_est_with_noise, beta_0_with_noise = linear_lasso(X, y, lam=lam, eta=eta)
+        # 固定ノイズあり
+        beta_est_with_noise, beta_0_with_noise = linear_lasso(X, y, lam=lam, eta=fixed_eta)
         train_error_with_noise[i] = compute_training_error(X, y, beta_est_with_noise, beta_0_with_noise)
         pred_error_with_noise[i] = compute_prediction_error(beta0_true, beta_est_with_noise)
     
     return train_error_no_noise, train_error_with_noise, pred_error_no_noise, pred_error_with_noise
 
 # ===================================================================
-# 5. 複数回実験の平均計算
+# 5. 固定ノイズで複数回実験の平均計算
 # ===================================================================
-def run_averaged_experiments(n, p, rho, lambda_seq, noise_variance_value, n_experiments=50):
+def run_averaged_experiments_fixed_noise(n, p, rho, lambda_seq, noise_variance_value, n_experiments=50):
     """
-    n_experiments回の実験を実行し、結果を平均する
+    1つの固定されたノイズetaに対して、n_experiments個の異なるデータセットで実験を実行し、結果を平均する
     
     Returns:
     --------
@@ -152,13 +153,18 @@ def run_averaged_experiments(n, p, rho, lambda_seq, noise_variance_value, n_expe
     """
     r = len(lambda_seq)
     
+    # 固定ノイズを1回だけ生成
+    noise_std_dev = np.sqrt(noise_variance_value)
+    fixed_eta = np.random.normal(loc=0, scale=noise_std_dev, size=(p, n))
+    print(f"\n固定プライバシーノイズを生成しました (分散Σ={noise_variance_value})")
+    
     # 累積用の配列
     sum_train_error_no_noise = np.zeros(r)
     sum_train_error_with_noise = np.zeros(r)
     sum_pred_error_no_noise = np.zeros(r)
     sum_pred_error_with_noise = np.zeros(r)
     
-    print(f"\n{n_experiments}回の実験を開始します...")
+    print(f"{n_experiments}個の異なるデータセットで実験を開始します...")
     start_time = time.time()
     
     for exp_num in range(n_experiments):
@@ -166,9 +172,9 @@ def run_averaged_experiments(n, p, rho, lambda_seq, noise_variance_value, n_expe
         if (exp_num + 1) % 10 == 0:
             print(f"  実験 {exp_num + 1}/{n_experiments} 完了...")
         
-        # 単一実験を実行
-        train_no, train_with, pred_no, pred_with = run_single_experiment(
-            n, p, rho, lambda_seq, noise_variance_value
+        # 固定ノイズを使って単一実験を実行
+        train_no, train_with, pred_no, pred_with = run_single_experiment_fixed_noise(
+            n, p, rho, lambda_seq, fixed_eta
         )
         
         # 累積
@@ -196,19 +202,20 @@ if __name__ == "__main__":
     n = 100              # データ数
     p = 200              # 特徴量の次元
     rho = 0.1            # スパース率
-    n_experiments = 50   # 実験回数
+    n_experiments = 50   # 実験回数（データセット数）
     noise_variance_value = 10  # プライバシーノイズの分散
     
     lambda_seq = np.logspace(-2, 1, 50)
     
-    print(f"実験設定:")
+    print(f"実験設定 (固定ノイズ方式):")
     print(f"  データサイズ: n={n}, p={p}")
     print(f"  スパース率: rho={rho}")
-    print(f"  実験回数: {n_experiments}")
+    print(f"  実験回数（データセット数）: {n_experiments}")
     print(f"  ノイズ分散: Σ={noise_variance_value}")
+    print(f"  ※ 1つのノイズを固定して、{n_experiments}個の異なるデータで平均")
     
-    # --- 6.2. 平均実験の実行 ---
-    avg_train_no, avg_train_with, avg_pred_no, avg_pred_with = run_averaged_experiments(
+    # --- 6.2. 固定ノイズ方式での平均実験の実行 ---
+    avg_train_no, avg_train_with, avg_pred_no, avg_pred_with = run_averaged_experiments_fixed_noise(
         n, p, rho, lambda_seq, noise_variance_value, n_experiments
     )
     
@@ -221,7 +228,7 @@ if __name__ == "__main__":
     print(f"  平均予測誤差 = {avg_pred_no[idx_opt_no_noise]:.4f}")
     print(f"  誤差比 (予測/訓練) = {avg_pred_no[idx_opt_no_noise]/avg_train_no[idx_opt_no_noise]:.4f}")
     
-    print("\n【平均結果: ノイズありの場合】")
+    print("\n【平均結果: 固定ノイズありの場合】")
     idx_opt_with_noise = np.argmin(avg_pred_with)
     print(f"  最適λ = {lambda_seq[idx_opt_with_noise]:.4f}")
     print(f"  平均訓練誤差 = {avg_train_with[idx_opt_with_noise]:.4f}")
@@ -234,23 +241,23 @@ if __name__ == "__main__":
     
     # (1) 訓練誤差の平均比較
     axes[0, 0].plot(np.log(lambda_seq), avg_train_no, 'r-o', markersize=4, label='ノイズなし')
-    axes[0, 0].plot(np.log(lambda_seq), avg_train_with, 'b--^', markersize=4, label=f'ノイズあり (Σ={noise_variance_value})')
+    axes[0, 0].plot(np.log(lambda_seq), avg_train_with, 'b--^', markersize=4, label=f'固定ノイズあり (Σ={noise_variance_value})')
     axes[0, 0].axvline(x=np.log(lambda_seq[idx_opt_no_noise]), color='r', linestyle=':', alpha=0.5)
     axes[0, 0].axvline(x=np.log(lambda_seq[idx_opt_with_noise]), color='b', linestyle=':', alpha=0.5)
     axes[0, 0].set_xlabel(r"$\log(\lambda)$")
     axes[0, 0].set_ylabel(r"平均訓練誤差: $\mathbb{E}[||y - X\hat{\beta}||^2]$")
-    axes[0, 0].set_title("平均訓練誤差の比較")
+    axes[0, 0].set_title("平均訓練誤差の比較 (固定ノイズ)")
     axes[0, 0].grid(True, alpha=0.3)
     axes[0, 0].legend()
     
     # (2) 予測誤差の平均比較
     axes[0, 1].plot(np.log(lambda_seq), avg_pred_no, 'r-o', markersize=4, label='ノイズなし')
-    axes[0, 1].plot(np.log(lambda_seq), avg_pred_with, 'b--^', markersize=4, label=f'ノイズあり (Σ={noise_variance_value})')
+    axes[0, 1].plot(np.log(lambda_seq), avg_pred_with, 'b--^', markersize=4, label=f'固定ノイズあり (Σ={noise_variance_value})')
     axes[0, 1].axvline(x=np.log(lambda_seq[idx_opt_no_noise]), color='r', linestyle=':', alpha=0.5)
     axes[0, 1].axvline(x=np.log(lambda_seq[idx_opt_with_noise]), color='b', linestyle=':', alpha=0.5)
     axes[0, 1].set_xlabel(r"$\log(\lambda)$")
     axes[0, 1].set_ylabel(r"平均予測誤差: $\mathbb{E}[||\beta_0 - \hat{\beta}||^2]$")
-    axes[0, 1].set_title("平均予測誤差の比較")
+    axes[0, 1].set_title("平均予測誤差の比較 (固定ノイズ)")
     axes[0, 1].grid(True, alpha=0.3)
     axes[0, 1].legend()
     
@@ -270,21 +277,21 @@ if __name__ == "__main__":
     axes[1, 1].axvline(x=np.log(lambda_seq[idx_opt_with_noise]), color='k', linestyle=':', alpha=0.5, label='最適λ')
     axes[1, 1].set_xlabel(r"$\log(\lambda)$")
     axes[1, 1].set_ylabel("平均誤差")
-    axes[1, 1].set_title(f"ノイズあり (Σ={noise_variance_value}): 平均訓練誤差 vs 平均予測誤差")
+    axes[1, 1].set_title(f"固定ノイズあり (Σ={noise_variance_value}): 平均訓練誤差 vs 平均予測誤差")
     axes[1, 1].grid(True, alpha=0.3)
     axes[1, 1].legend()
     
-    plt.suptitle(f"訓練誤差と予測誤差の平均比較 ({n_experiments}回の実験)", fontsize=14, y=0.995)
+    plt.suptitle(f"訓練誤差と予測誤差の平均比較 - 固定ノイズ方式 ({n_experiments}個のデータセット)", fontsize=14, y=0.995)
     plt.tight_layout()
     
     # --- 6.5. 結果を保存 ---
     os.makedirs("results", exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
-    # グラフを保存
-    plt.savefig(f'results/averaged_error_comparison_{timestamp}.png', dpi=300, bbox_inches='tight')
+    # グラフを保存（fixedNoiseを含むファイル名）
+    plt.savefig(f'results/fixedNoise_error_comparison_{timestamp}.png', dpi=300, bbox_inches='tight')
     plt.show()
-    print(f"\nグラフを保存しました: results/averaged_error_comparison_{timestamp}.png")
+    print(f"\nグラフを保存しました: results/fixedNoise_error_comparison_{timestamp}.png")
     
     # 結果データをCSVで保存
     results_df = pd.DataFrame({
@@ -295,5 +302,5 @@ if __name__ == "__main__":
         'avg_train_error_with_noise': avg_train_with,
         'avg_pred_error_with_noise': avg_pred_with
     })
-    results_df.to_csv(f'results/averaged_errors_{timestamp}.csv', index=False)
-    print(f"平均結果データを保存しました: results/averaged_errors_{timestamp}.csv")
+    results_df.to_csv(f'results/fixedNoise_errors_{timestamp}.csv', index=False)
+    print(f"平均結果データを保存しました: results/fixedNoise_errors_{timestamp}.csv")
