@@ -32,11 +32,7 @@ from datetime import datetime
 def soft_threshold_c_exact(b, eta_i, lam1, norm_x_i):
     """
     C実装の正確な再現
-    x[i] = (b - eta[i] - lambda_1*sgn(b - eta[i])) * (|b - eta[i]| > lambda_1) / norm_x[i]
-    
-    これは以下と等価:
-    S(b - eta[i], lambda_1) / norm_x[i]
-    where S(z, λ) = sgn(z) * max(|z| - λ, 0)
+    S(z, λ) = sgn(z) * max(|z| - λ, 0) where z = b - eta[i]
     """
     z = b - eta_i
     if np.abs(z) > lam1:
@@ -49,40 +45,10 @@ def lasso_cd_c_exact(X, y, lam1=0, lam2=0, beta_ini=None, eta=None,
     """
     C実装(CCD_EN_Private.c)の正確な再現
     
-    重要な修正点:
-    1. eta は p次元ベクトル（各係数に1つのスカラー）
-    2. 勾配計算: b = X[:,j]^T * r_cavity （ノイズなし）
-    3. Soft-thresholding: S(b - eta[j], lambda_1) / norm_x[j]
-    
-    Parameters:
-    -----------
-    X : ndarray (n, p)
-        特徴量行列（正規化済みを想定: F'/sqrt(N)）
-    y : ndarray (n,)
-        目的変数
-    lam1 : float
-        L1正則化パラメータ（lambda_1）
-    lam2 : float
-        L2正則化パラメータ（lambda_2）
-    beta_ini : ndarray (p,)
-        初期値
-    eta : ndarray (p,)  ← 重要: p次元ベクトル！
-        プライバシーノイズベクトル（各係数に1つのスカラー）
-    max_iter : int
-        最大反復回数
-    tol : float
-        収束判定閾値
-    verbose : bool
-        デバッグ出力
-    
-    Returns:
-    --------
-    beta : ndarray (p,)
-        推定係数
-    converged : bool
-        収束フラグ
-    n_iter : int
-        反復回数
+    重要:
+    - eta は p次元ベクトル（各係数に1つのスカラー）
+    - 勾配計算: b = X[:,j]^T * r_cavity （ノイズなし）
+    - Soft-thresholding: S(b - eta[j], lambda_1) / norm_x[j]
     """
     n, p = X.shape
     
@@ -95,34 +61,32 @@ def lasso_cd_c_exact(X, y, lam1=0, lam2=0, beta_ini=None, eta=None,
     if eta is None:
         eta = np.zeros(p)  # p次元ベクトル
     
-    # norm_x[i] = lambda_2 + Σ(X[:,i]^2) の計算
+    # norm_x[i] = lambda_2 + Σ(X[:,i]^2)
     norm_x = lam2 + np.sum(X**2, axis=0)
     
-    # 初期残差の計算
+    # 初期残差
     y_hat = X @ beta
     r = y - y_hat
     
-    beta_old = beta.copy()
     converged = False
     
     for t in range(max_iter):
         n_converged = 0
         
-        # ランダム順序で更新（Cバージョンのshuffle関数に対応）
+        # ランダム順序で更新
         indices = np.random.permutation(p)
         
         for j in indices:
             # cavity residual: r_cavity = r + X[:,j] * beta[j]
             r_cavity = r + X[:, j] * beta[j]
             
-            # b = X[:,j]^T * r_cavity （ノイズはここでは加えない）
+            # 勾配: b = X[:,j]^T * r_cavity
             b = np.dot(X[:, j], r_cavity)
             
             # 古い値を保存
             beta_old_j = beta[j]
             
-            # Soft thresholding（C実装準拠）
-            # x[i] = S(b - eta[i], lambda_1) / norm_x[i]
+            # Soft thresholding: S(b - eta[j], lambda_1) / norm_x[j]
             beta[j] = soft_threshold_c_exact(b, eta[j], lam1, norm_x[j])
             
             # 収束判定
@@ -149,11 +113,13 @@ def lasso_cd_c_exact(X, y, lam1=0, lam2=0, beta_ini=None, eta=None,
 # ===================================================================
 
 def generate_synthetic_data(n, p, beta0, sigma_y=1.0, seed=None):
-    """人工データ生成"""
+    """
+    人工データ生成
+    y = (X @ beta0) / sqrt(p) + noise
+    """
     if seed is not None:
         np.random.seed(seed)
     
-    # 正規化なしでデータ生成
     X = np.random.normal(0, 1.0, size=(n, p))
     sqrt_p = np.sqrt(p)
     y_true = (X @ beta0) / sqrt_p
@@ -163,7 +129,10 @@ def generate_synthetic_data(n, p, beta0, sigma_y=1.0, seed=None):
     return X, y
 
 def generate_true_beta(p, rho, seed=None):
-    """真のβを生成（スパース率rho）"""
+    """
+    真のβを生成（スパース率rho）
+    rho = 真の非ゼロ係数の割合
+    """
     if seed is not None:
         np.random.seed(seed)
     
@@ -188,7 +157,16 @@ def compute_test_error(X_test, y_test, beta):
     return np.mean((y_test - y_pred)**2)
 
 def compute_sparsity_ratio(beta, p):
-    """スパース率: 非ゼロ係数数 / p"""
+    """
+    スパース率: 推定された非ゼロ係数の割合
+    
+    定義: ρ^ = ||β^||_0 / p
+    
+    ここで:
+    - ||β^||_0 = 非ゼロ係数の数
+    - p = 全係数の数
+    - ρ^ は 0 から 1 の値をとる
+    """
     return np.sum(np.abs(beta) > 1e-10) / p
 
 # ===================================================================
@@ -196,30 +174,22 @@ def compute_sparsity_ratio(beta, p):
 # ===================================================================
 
 def run_single_experiment(n, p, beta0_true, lambda_seq, 
-                                        fixed_eta, lam2=0, n_test=1000,
-                                        sigma_y=1.0):
+                         fixed_eta, lam2=0, n_test=1000,
+                         sigma_y=1.0):
     """
     C実装完全互換の単一実験
     
     Parameters:
     -----------
-    fixed_eta : ndarray (p,)  ← 重要: p次元ベクトル
-        固定プライバシーノイズ
-    normalize : bool
-        Trueの場合、MATLABコードのようにXを sqrt(p) で正規化
+    fixed_eta : ndarray (p,)
+        固定プライバシーノイズ（p次元ベクトル）
     """
-     # 訓練データ生成（y = F*x0/sqrt(N) + noise）
+    # 訓練データ生成
     X_train, y_train = generate_synthetic_data(n, p, beta0_true, sigma_y)
     X_test, y_test = generate_synthetic_data(n_test, p, beta0_true, sigma_y)
     
-    # F'/sqN を渡す
+    # X を sqrt(p) で正規化
     sqrt_p = np.sqrt(p)
-    X_train_norm = X_train.T / sqrt_p  # 転置してから正規化！
-    X_test_norm = X_test.T / sqrt_p
-    
-    # しかし、CD内部では通常の形式 (n, p) を期待しているので
-    # 実際には転置せず、列ごとに処理することを考慮
-    # → より正確には、X/sqrt(p) のまま使う
     X_train_norm = X_train / sqrt_p
     X_test_norm = X_test / sqrt_p
     
@@ -237,14 +207,12 @@ def run_single_experiment(n, p, beta0_true, lambda_seq,
             X_train_norm, y_train, lam1=lam, lam2=lam2, eta=None
         )
         
-        # 予測: y_hat = F*x/sqrt(N)
-        # これは既に正規化済みのXを使っているので、そのまま
         y_pred_train_no = X_train_norm @ beta_no
         y_pred_test_no = X_test_norm @ beta_no
         
         train_error_no[i] = np.mean((y_train - y_pred_train_no)**2)
         test_error_no[i] = np.mean((y_test - y_pred_test_no)**2)
-        sparsity_no[i] = np.sum(np.abs(beta_no) > 1e-10) / n  # gamma = #nonzero/M
+        sparsity_no[i] = compute_sparsity_ratio(beta_no, p)  # ← 修正: p を使用
         
         # ノイズあり
         beta_with, _, _ = lasso_cd_c_exact(
@@ -256,7 +224,7 @@ def run_single_experiment(n, p, beta0_true, lambda_seq,
         
         train_error_with[i] = np.mean((y_train - y_pred_train_with)**2)
         test_error_with[i] = np.mean((y_test - y_pred_test_with)**2)
-        sparsity_with[i] = np.sum(np.abs(beta_with) > 1e-10) / n
+        sparsity_with[i] = compute_sparsity_ratio(beta_with, p)  # ← 修正: p を使用
     
     return (train_error_no, train_error_with,
             test_error_no, test_error_with,
@@ -266,20 +234,20 @@ def run_single_experiment(n, p, beta0_true, lambda_seq,
 def run_averaged_experiments_fixed_noise(n, p, rho, lambda_seq, 
                                           noise_variance, lam2=0,
                                           n_experiments=20, n_test=1000,
-                                          normalize=True):
+                                          sigma_y=1.0):
     """
     固定ノイズで複数実験を平均
     """
     r = len(lambda_seq)
     
-    # 固定ノイズ生成（p次元ベクトル
+    # 固定ノイズ生成（p次元ベクトル）
     fixed_eta = np.random.normal(0, noise_variance, size=p)
     
     print(f"\n{'='*70}")
     print(f"Coordinate Descent LASSO")
     print(f"{'='*70}")
     print(f"固定ノイズ生成: Sigma={noise_variance}, eta.shape={fixed_eta.shape}")
-    print(f"正規化: {'あり (X/sqrt(p))' if normalize else 'なし'}")
+    print(f"スパース率の定義: ρ^ = ||β^||_0 / p")
     print(f"実験回数: {n_experiments}")
     
     # 累積用配列
@@ -300,7 +268,7 @@ def run_averaged_experiments_fixed_noise(n, p, rho, lambda_seq,
         
         (train_no, train_with, test_no, test_with,
          sparse_no, sparse_with) = run_single_experiment(
-            n, p, beta0_true, lambda_seq, fixed_eta, lam2, n_test, normalize
+            n, p, beta0_true, lambda_seq, fixed_eta, lam2, n_test, sigma_y
         )
         
         sum_train_no += train_no
@@ -331,31 +299,29 @@ if __name__ == "__main__":
     # --- パラメータ設定 ---
     n = 500              # 訓練データ数
     p = 1000             # 特徴量の次元
-    rho = 0.1            # スパース率
-    n_experiments = 10   # 実験回数（データセット数）
+    rho = 0.1            # 真のスパース率（10%が非ゼロ）
+    n_experiments = 1   # 実験回数
     n_test = 1000        # テストデータ数
     lam2 = 0.0           # L2正則化（0でLASSO）
-    tol = 1e-8           # 収束判定閾値
-    max_iter = 1000      # 最大反復回数
+    sigma_y = 1.0        # データノイズ
     
     # 複数のノイズレベルを設定
-    noise_variance_values = [1.0, 0.1]
+    noise_variance_values = [0.1, 1.0]
     
-    lambda_seq = np.logspace(0, 1.2, 35)  # λ = 1.0 ～ 15.8
+    lambda_seq = np.logspace(-3, 0, 50)  # [0.001, 1.0]
     
     print("="*70)
     print("実験設定 (Coordinate Descent LASSO)")
     print("="*70)
-    print(f"  訓練データサイズ: n={n}, p={p}")
+    print(f"  訓練データサイズ: n={n}, p={p} (n/p={n/p:.2f})")
     print(f"  テストデータサイズ: n_test={n_test}")
-    print(f"  スパース率: rho={rho}")
+    print(f"  真のスパース率: rho={rho} ({int(p*rho)}個の非ゼロ係数)")
     print(f"  実験回数: {n_experiments}")
     print(f"  ノイズ分散レベル: Sigma={noise_variance_values}")
     print(f"  L2正則化: lambda_2={lam2}")
     print(f"  lambda範囲: [{lambda_seq[0]:.4f}, {lambda_seq[-1]:.4f}]")
-    print(f"  モデル: 切片なし (y = X*beta)")
-    print(f"  アルゴリズム: Cyclic Coordinate Descent")
-    print(f"  ※ 重要: eta は p次元ベクトル")
+    print(f"  モデル: y = (X/sqrt(p))*beta + noise")
+    print(f"  スパース率の定義: ρ^ = ||β^||_0 / p")
     print("="*70)
     
     # 結果を格納する辞書
@@ -370,7 +336,7 @@ if __name__ == "__main__":
         # 固定ノイズ方式での平均実験の実行
         (avg_train_no, avg_train_with, avg_test_no, avg_test_with,
          avg_sparse_no, avg_sparse_with) = run_averaged_experiments_fixed_noise(
-            n, p, rho, lambda_seq, noise_var, lam2, n_experiments, n_test
+            n, p, rho, lambda_seq, noise_var, lam2, n_experiments, n_test, sigma_y
         )
         
         # 誤差比を計算
@@ -401,7 +367,8 @@ if __name__ == "__main__":
         print(f"  平均訓練誤差 = {avg_train_no[idx_opt_no_noise]:.4f}")
         print(f"  平均テスト誤差 = {avg_test_no[idx_opt_no_noise]:.4f}")
         print(f"  誤差比 (テスト/訓練) = {error_ratio_no_noise[idx_opt_no_noise]:.4f}")
-        print(f"  スパース率比 = {avg_sparse_no[idx_opt_no_noise]:.4f}")
+        print(f"  スパース率 ρ^ = {avg_sparse_no[idx_opt_no_noise]:.4f} "
+              f"({int(avg_sparse_no[idx_opt_no_noise]*p)}/{p}個)")
         
         print(f"\n【Sigma = {noise_var}: 固定ノイズありの場合】")
         idx_opt_with_noise = np.argmin(avg_test_with)
@@ -409,7 +376,8 @@ if __name__ == "__main__":
         print(f"  平均訓練誤差 = {avg_train_with[idx_opt_with_noise]:.4f}")
         print(f"  平均テスト誤差 = {avg_test_with[idx_opt_with_noise]:.4f}")
         print(f"  誤差比 (テスト/訓練) = {error_ratio_with_noise[idx_opt_with_noise]:.4f}")
-        print(f"  スパース率比 = {avg_sparse_with[idx_opt_with_noise]:.4f}")
+        print(f"  スパース率 ρ^ = {avg_sparse_with[idx_opt_with_noise]:.4f} "
+              f"({int(avg_sparse_with[idx_opt_with_noise]*p)}/{p}個)")
         
         # ノイズの影響度を計算
         noise_impact = ((avg_test_with[idx_opt_with_noise] - avg_test_no[idx_opt_no_noise]) / 
@@ -421,33 +389,38 @@ if __name__ == "__main__":
     print("\n" + "="*70)
     print("【全体サマリー：ノイズレベル間の比較】")
     print("="*70)
-    print(f"{'ノイズ分散':>12} | {'最適lambda(無)':>13} | {'テスト誤差(無)':>13} | "
-          f"{'最適lambda(有)':>13} | {'テスト誤差(有)':>13} | {'影響率(%)':>10}")
+    print(f"{'ノイズ分散':>12} | {'最適λ(無)':>10} | {'テスト誤差(無)':>13} | "
+          f"{'スパース率(無)':>13} | {'最適λ(有)':>10} | {'テスト誤差(有)':>13} | "
+          f"{'スパース率(有)':>13}")
     print("-"*70)
     
     for noise_var in noise_variance_values:
         res = all_results[noise_var]
         idx_no = np.argmin(res['avg_test_no'])
         idx_with = np.argmin(res['avg_test_with'])
-        impact = ((res['avg_test_with'][idx_with] - res['avg_test_no'][idx_no]) / 
-                 res['avg_test_no'][idx_no] * 100)
         
-        print(f"Sigma = {noise_var:>5.1f} | "
-              f"{lambda_seq[idx_no]:>13.4f} | "
+        print(f"Sigma={noise_var:>6.1f} | "
+              f"{lambda_seq[idx_no]:>10.4f} | "
               f"{res['avg_test_no'][idx_no]:>13.4f} | "
-              f"{lambda_seq[idx_with]:>13.4f} | "
+              f"{res['avg_sparse_no'][idx_no]:>13.4f} | "
+              f"{lambda_seq[idx_with]:>10.4f} | "
               f"{res['avg_test_with'][idx_with]:>13.4f} | "
-              f"{impact:>+9.2f}")
+              f"{res['avg_sparse_with'][idx_with]:>13.4f}")
     print("="*70)
     
     print("\n実験完了")
+    print("※ スパース率 ρ^ = ||β^||_0 / p は 0 から 1 の値をとります")
+    print(f"  真のスパース率 rho = {rho} ({int(p*rho)}個の非ゼロ係数)")
     
-    # --- グラフ描画（各ノイズレベルごと）---
+    # --- グラフ描画 ---
     os.makedirs("results", exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
-    print("\nグラフを生成中...")
+    print("\n" + "="*70)
+    print("グラフとデータを保存中...")
+    print("="*70)
     
+    # 各ノイズレベルごとにグラフを生成
     for noise_var in noise_variance_values:
         res = all_results[noise_var]
         idx_opt_no = np.argmin(res['avg_test_no'])
@@ -455,33 +428,33 @@ if __name__ == "__main__":
         
         fig, axes = plt.subplots(3, 2, figsize=(14, 15))
         
-        # (1) 訓練誤差の平均比較
+        # (1) 訓練誤差の比較
         axes[0, 0].plot(np.log(lambda_seq), res['avg_train_no'], 'r-o', 
                        markersize=4, label='Noise-free')
         axes[0, 0].plot(np.log(lambda_seq), res['avg_train_with'], 'b--^', 
-                       markersize=4, label=f'With noise (Sigma={noise_var})')
+                       markersize=4, label=f'With noise (Σ={noise_var})')
         axes[0, 0].axvline(x=np.log(lambda_seq[idx_opt_no]), color='r', 
                           linestyle=':', alpha=0.5)
         axes[0, 0].axvline(x=np.log(lambda_seq[idx_opt_with]), color='b', 
                           linestyle=':', alpha=0.5)
-        axes[0, 0].set_xlabel(r"$\log(\lambda)$")
-        axes[0, 0].set_ylabel(r"Average Training Error")
-        axes[0, 0].set_title("Training Error Comparison")
+        axes[0, 0].set_xlabel(r"$\log(\lambda)$", fontsize=11)
+        axes[0, 0].set_ylabel("Training Error", fontsize=11)
+        axes[0, 0].set_title("Training Error vs Lambda", fontsize=12)
         axes[0, 0].grid(True, alpha=0.3)
         axes[0, 0].legend()
         
-        # (2) テスト誤差の平均比較
+        # (2) テスト誤差の比較
         axes[0, 1].plot(np.log(lambda_seq), res['avg_test_no'], 'r-o', 
                        markersize=4, label='Noise-free')
         axes[0, 1].plot(np.log(lambda_seq), res['avg_test_with'], 'b--^', 
-                       markersize=4, label=f'With noise (Sigma={noise_var})')
+                       markersize=4, label=f'With noise (Σ={noise_var})')
         axes[0, 1].axvline(x=np.log(lambda_seq[idx_opt_no]), color='r', 
                           linestyle=':', alpha=0.5)
         axes[0, 1].axvline(x=np.log(lambda_seq[idx_opt_with]), color='b', 
                           linestyle=':', alpha=0.5)
-        axes[0, 1].set_xlabel(r"$\log(\lambda)$")
-        axes[0, 1].set_ylabel(r"Average Test Error")
-        axes[0, 1].set_title("Test Error Comparison")
+        axes[0, 1].set_xlabel(r"$\log(\lambda)$", fontsize=11)
+        axes[0, 1].set_ylabel("Test Error", fontsize=11)
+        axes[0, 1].set_title("Test Error vs Lambda", fontsize=12)
         axes[0, 1].grid(True, alpha=0.3)
         axes[0, 1].legend()
         
@@ -491,10 +464,10 @@ if __name__ == "__main__":
         axes[1, 0].plot(np.log(lambda_seq), res['avg_test_no'], 'r--s', 
                        markersize=4, label='Test Error')
         axes[1, 0].axvline(x=np.log(lambda_seq[idx_opt_no]), color='k', 
-                          linestyle=':', alpha=0.5, label='Optimal lambda')
-        axes[1, 0].set_xlabel(r"$\log(\lambda)$")
-        axes[1, 0].set_ylabel("Average Error")
-        axes[1, 0].set_title("Noise-free: Train vs Test Error")
+                          linestyle=':', alpha=0.5, label='Optimal λ')
+        axes[1, 0].set_xlabel(r"$\log(\lambda)$", fontsize=11)
+        axes[1, 0].set_ylabel("Error", fontsize=11)
+        axes[1, 0].set_title("Noise-free: Train vs Test", fontsize=12)
         axes[1, 0].grid(True, alpha=0.3)
         axes[1, 0].legend()
         
@@ -504,10 +477,10 @@ if __name__ == "__main__":
         axes[1, 1].plot(np.log(lambda_seq), res['avg_test_with'], 'b--s', 
                        markersize=4, label='Test Error')
         axes[1, 1].axvline(x=np.log(lambda_seq[idx_opt_with]), color='k', 
-                          linestyle=':', alpha=0.5, label='Optimal lambda')
-        axes[1, 1].set_xlabel(r"$\log(\lambda)$")
-        axes[1, 1].set_ylabel("Average Error")
-        axes[1, 1].set_title(f"With Noise (Sigma={noise_var}): Train vs Test")
+                          linestyle=':', alpha=0.5, label='Optimal λ')
+        axes[1, 1].set_xlabel(r"$\log(\lambda)$", fontsize=11)
+        axes[1, 1].set_ylabel("Error", fontsize=11)
+        axes[1, 1].set_title(f"With Noise (Σ={noise_var}): Train vs Test", fontsize=12)
         axes[1, 1].grid(True, alpha=0.3)
         axes[1, 1].legend()
         
@@ -515,165 +488,188 @@ if __name__ == "__main__":
         axes[2, 0].plot(lambda_seq, res['error_ratio_no'], 'r-o', 
                        markersize=4, label='Noise-free')
         axes[2, 0].plot(lambda_seq, res['error_ratio_with'], 'b--^', 
-                       markersize=4, label=f'With noise (Sigma={noise_var})')
+                       markersize=4, label=f'With noise (Σ={noise_var})')
+        axes[2, 0].axhline(y=1.0, color='gray', linestyle=':', alpha=0.5)
         axes[2, 0].axvline(x=lambda_seq[idx_opt_no], color='r', 
                           linestyle=':', alpha=0.5)
         axes[2, 0].axvline(x=lambda_seq[idx_opt_with], color='b', 
                           linestyle=':', alpha=0.5)
-        axes[2, 0].set_xlabel(r"$\lambda$")
-        axes[2, 0].set_ylabel(r"Error Ratio: Test/Train")
-        axes[2, 0].set_title("Error Ratio Comparison")
+        axes[2, 0].set_xlabel(r"$\lambda$", fontsize=11)
+        axes[2, 0].set_ylabel("Error Ratio (Test/Train)", fontsize=11)
+        axes[2, 0].set_title("Error Ratio vs Lambda", fontsize=12)
         axes[2, 0].grid(True, alpha=0.3)
         axes[2, 0].legend()
         
-        # (6) 誤差比 vs スパース率比
+        # (6) 誤差比 vs スパース率
         axes[2, 1].plot(res['avg_sparse_no'], res['error_ratio_no'], 'r-o', 
                        markersize=4, label='Noise-free')
         axes[2, 1].plot(res['avg_sparse_with'], res['error_ratio_with'], 'b--^', 
-                       markersize=4, label=f'With noise (Sigma={noise_var})')
-        axes[2, 1].set_xlabel(r"Sparsity Ratio")
-        axes[2, 1].set_xlim(0, 0.5)
-        axes[2, 1].set_ylabel(r"Error Ratio: Test/Train")
-        axes[2, 1].set_title("Error Ratio vs Sparsity")
+                       markersize=4, label=f'With noise (Σ={noise_var})')
+        axes[2, 1].axhline(y=1.0, color='gray', linestyle=':', alpha=0.5)
+        axes[2, 1].set_xlabel(r"Sparsity Ratio $\hat{\rho}$", fontsize=11)
+        axes[2, 1].set_xlim(0, 1.0)
+        axes[2, 1].set_ylabel("Error Ratio (Test/Train)", fontsize=11)
+        axes[2, 1].set_title("Error Ratio vs Sparsity", fontsize=12)
         axes[2, 1].grid(True, alpha=0.3)
         axes[2, 1].legend()
         
-        plt.suptitle(f"CD LASSO (Sigma={noise_var}) - No Intercept ({n_experiments} datasets)", 
+        plt.suptitle(f"CD LASSO (Σ={noise_var}, n={n}, p={p}, experiments={n_experiments})", 
                     fontsize=14, y=0.997)
         plt.tight_layout()
         
-        # グラフを保存（ノイズレベルごと）
-        filename = f'results/CD_LASSO_Sigma{noise_var}_{timestamp}.png'
-        plt.savefig(filename, dpi=300, bbox_inches='tight')
+        # グラフを保存
+        png_filename = f'results/CD_LASSO_Sigma{noise_var}_{timestamp}.png'
+        plt.savefig(png_filename, dpi=300, bbox_inches='tight')
         plt.close()
-        print(f"  Saved: {filename}")
+        print(f"  保存: {png_filename}")
     
     # --- 比較グラフ（全ノイズレベル重ね合わせ）---
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    colors = ['b', 'r', 'g', 'm']
-    markers = ['o', '^', 's', 'd']
+    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+    colors = {'0.1': 'blue', '1.0': 'red'}
     
-    for i, noise_var in enumerate(noise_variance_values):
+    for noise_var in noise_variance_values:
         res = all_results[noise_var]
-        color = colors[i % len(colors)]
-        marker = markers[i % len(markers)]
+        color = colors[str(noise_var)]
+        label_base = f'Σ={noise_var}'
         
-        # (1) テスト誤差の比較（ノイズなし）
+        # (1) テスト誤差比較（ノイズなし）
         axes[0, 0].plot(np.log(lambda_seq), res['avg_test_no'], 
-                       color=color, marker=marker, linestyle='-',
-                       markersize=3, alpha=0.7,
-                       label=f'Sigma={noise_var} (noise-free)')
+                       color=color, marker='o', linestyle='-',
+                       markersize=3, alpha=0.7, label=f'{label_base} (no noise)')
         
-        # (2) テスト誤差の比較（ノイズあり）
+        # (2) テスト誤差比較（ノイズあり）
         axes[0, 1].plot(np.log(lambda_seq), res['avg_test_with'], 
-                       color=color, marker=marker, linestyle='--',
-                       markersize=3, alpha=0.7,
-                       label=f'Sigma={noise_var} (with noise)')
+                       color=color, marker='^', linestyle='--',
+                       markersize=3, alpha=0.7, label=f'{label_base} (with noise)')
         
-        # (3) 誤差比の比較（ノイズなし）
+        # (3) スパース率比較（ノイズなし）
+        axes[0, 2].plot(np.log(lambda_seq), res['avg_sparse_no'], 
+                       color=color, marker='o', linestyle='-',
+                       markersize=3, alpha=0.7, label=f'{label_base} (no noise)')
+        
+        # (4) 誤差比比較（ノイズなし）
         axes[1, 0].plot(lambda_seq, res['error_ratio_no'], 
-                       color=color, marker=marker, linestyle='-',
-                       markersize=3, alpha=0.7,
-                       label=f'Sigma={noise_var} (noise-free)')
+                       color=color, marker='o', linestyle='-',
+                       markersize=3, alpha=0.7, label=f'{label_base} (no noise)')
         
-        # (4) 誤差比の比較（ノイズあり）
+        # (5) 誤差比比較（ノイズあり）
         axes[1, 1].plot(lambda_seq, res['error_ratio_with'], 
-                       color=color, marker=marker, linestyle='--',
-                       markersize=3, alpha=0.7,
-                       label=f'Sigma={noise_var} (with noise)')
+                       color=color, marker='^', linestyle='--',
+                       markersize=3, alpha=0.7, label=f'{label_base} (with noise)')
+        
+        # (6) スパース率比較（ノイズあり）
+        axes[1, 2].plot(np.log(lambda_seq), res['avg_sparse_with'], 
+                       color=color, marker='^', linestyle='--',
+                       markersize=3, alpha=0.7, label=f'{label_base} (with noise)')
     
-    axes[0, 0].set_xlabel(r"$\log(\lambda)$")
-    axes[0, 0].set_ylabel("Average Test Error")
-    axes[0, 0].set_title("Noise-free: Test Error Comparison")
+    axes[0, 0].set_xlabel(r"$\log(\lambda)$", fontsize=11)
+    axes[0, 0].set_ylabel("Test Error", fontsize=11)
+    axes[0, 0].set_title("Test Error (Noise-free)", fontsize=12)
     axes[0, 0].grid(True, alpha=0.3)
     axes[0, 0].legend()
     
-    axes[0, 1].set_xlabel(r"$\log(\lambda)$")
-    axes[0, 1].set_ylabel("Average Test Error")
-    axes[0, 1].set_title("With Noise: Test Error Comparison")
+    axes[0, 1].set_xlabel(r"$\log(\lambda)$", fontsize=11)
+    axes[0, 1].set_ylabel("Test Error", fontsize=11)
+    axes[0, 1].set_title("Test Error (With Noise)", fontsize=12)
     axes[0, 1].grid(True, alpha=0.3)
     axes[0, 1].legend()
     
-    axes[1, 0].set_xlabel(r"$\lambda$")
-    axes[1, 0].set_ylabel("Error Ratio")
-    axes[1, 0].set_title("Noise-free: Error Ratio Comparison")
+    axes[0, 2].set_xlabel(r"$\log(\lambda)$", fontsize=11)
+    axes[0, 2].set_ylabel(r"Sparsity $\hat{\rho}$", fontsize=11)
+    axes[0, 2].set_title("Sparsity (Noise-free)", fontsize=12)
+    axes[0, 2].grid(True, alpha=0.3)
+    axes[0, 2].legend()
+    
+    axes[1, 0].set_xlabel(r"$\lambda$", fontsize=11)
+    axes[1, 0].set_ylabel("Error Ratio", fontsize=11)
+    axes[1, 0].set_title("Error Ratio (Noise-free)", fontsize=12)
+    axes[1, 0].axhline(y=1.0, color='gray', linestyle=':', alpha=0.5)
     axes[1, 0].grid(True, alpha=0.3)
     axes[1, 0].legend()
     
-    axes[1, 1].set_xlabel(r"$\lambda$")
-    axes[1, 1].set_ylabel("Error Ratio")
-    axes[1, 1].set_title("With Noise: Error Ratio Comparison")
+    axes[1, 1].set_xlabel(r"$\lambda$", fontsize=11)
+    axes[1, 1].set_ylabel("Error Ratio", fontsize=11)
+    axes[1, 1].set_title("Error Ratio (With Noise)", fontsize=12)
+    axes[1, 1].axhline(y=1.0, color='gray', linestyle=':', alpha=0.5)
     axes[1, 1].grid(True, alpha=0.3)
     axes[1, 1].legend()
     
-    plt.suptitle(f"All Noise Levels Comparison ({n_experiments} datasets)", 
-                fontsize=14, y=0.995)
+    axes[1, 2].set_xlabel(r"$\log(\lambda)$", fontsize=11)
+    axes[1, 2].set_ylabel(r"Sparsity $\hat{\rho}$", fontsize=11)
+    axes[1, 2].set_title("Sparsity (With Noise)", fontsize=12)
+    axes[1, 2].grid(True, alpha=0.3)
+    axes[1, 2].legend()
+    
+    plt.suptitle(f"All Noise Levels Comparison (n={n}, p={p}, experiments={n_experiments})", 
+                fontsize=14, y=0.997)
     plt.tight_layout()
     
-    filename_comp = f'results/CD_LASSO_AllSigma_comparison_{timestamp}.png'
-    plt.savefig(filename_comp, dpi=300, bbox_inches='tight')
+    png_comp_filename = f'results/CD_LASSO_AllSigma_comparison_{timestamp}.png'
+    plt.savefig(png_comp_filename, dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"  Saved: {filename_comp}")
+    print(f"  保存: {png_comp_filename}")
     
     # --- CSV保存 ---
-    print("\nSaving data to CSV...")
+    print("\nCSVファイルを保存中...")
     for noise_var in noise_variance_values:
         res = all_results[noise_var]
         results_df = pd.DataFrame({
-            'log_lambda': np.log(lambda_seq),
             'lambda': lambda_seq,
-            'avg_train_error_no_noise': res['avg_train_no'],
-            'avg_test_error_no_noise': res['avg_test_no'],
-            'avg_train_error_with_noise': res['avg_train_with'],
-            'avg_test_error_with_noise': res['avg_test_with'],
+            'log_lambda': np.log(lambda_seq),
+            'train_error_no_noise': res['avg_train_no'],
+            'test_error_no_noise': res['avg_test_no'],
+            'train_error_with_noise': res['avg_train_with'],
+            'test_error_with_noise': res['avg_test_with'],
+            'sparsity_no_noise': res['avg_sparse_no'],
+            'sparsity_with_noise': res['avg_sparse_with'],
             'error_ratio_no_noise': res['error_ratio_no'],
-            'error_ratio_with_noise': res['error_ratio_with'],
-            'sparsity_ratio_no_noise': res['avg_sparse_no'],
-            'sparsity_ratio_with_noise': res['avg_sparse_with']
+            'error_ratio_with_noise': res['error_ratio_with']
         })
         csv_filename = f'results/CD_LASSO_Sigma{noise_var}_{timestamp}.csv'
         results_df.to_csv(csv_filename, index=False)
-        print(f"  Saved: {csv_filename}")
+        print(f"  保存: {csv_filename}")
     
     # --- 設定ファイル保存 ---
+    print("\n設定ファイルを保存中...")
     config_filename = f'results/CD_LASSO_config_{timestamp}.txt'
     with open(config_filename, 'w', encoding='utf-8') as f:
         f.write("="*80 + "\n")
-        f.write("C/MATLAB Complete Compatible Coordinate Descent LASSO Experiment Config\n")
+        f.write("Coordinate Descent LASSO Experiment Configuration\n")
         f.write("="*80 + "\n\n")
         
         f.write("【Data Configuration】\n")
         f.write(f"  Training data size    : n = {n}, p = {p} (n/p = {n/p:.2f})\n")
         f.write(f"  Test data size        : n_test = {n_test}\n")
-        f.write(f"  Sparsity ratio        : rho = {rho}\n")
-        f.write(f"  Number of experiments : {n_experiments}\n\n")
+        f.write(f"  True sparsity ratio   : rho = {rho} ({int(p*rho)} non-zero coefficients)\n")
+        f.write(f"  Number of experiments : {n_experiments}\n")
+        f.write(f"  Data noise variance   : sigma_y = {sigma_y}\n\n")
         
         f.write("【Regularization Configuration】\n")
         f.write(f"  L1 regularization     : lambda in [{lambda_seq[0]:.4f}, {lambda_seq[-1]:.4f}] ({len(lambda_seq)} points)\n")
         f.write(f"  L2 regularization     : lambda_2 = {lam2}\n\n")
         
-        f.write("【Noise Configuration】\n")
+        f.write("【Privacy Noise Configuration】\n")
         f.write(f"  Noise variance levels : Sigma = {noise_variance_values}\n")
         f.write(f"  Noise generation      : Fixed (same for all experiments)\n")
-        f.write(f"  Noise shape           : p-dimensional vector (C/MATLAB compatible)\n\n")
+        f.write(f"  Noise dimension       : p-dimensional vector (one scalar per coefficient)\n\n")
         
         f.write("【Algorithm Configuration】\n")
-        f.write(f"  Method                : Cyclic Coordinate Descent (C/MATLAB exact)\n")
-        f.write(f"  Model                 : No intercept (y = X*beta)\n")
-        f.write(f"  Normalization         : Yes (X/sqrt(p))\n")
-        f.write(f"  Convergence tolerance : {tol}\n")
-        f.write(f"  Max iterations        : {max_iter}\n\n")
+        f.write(f"  Method                : Cyclic Coordinate Descent (C/MATLAB compatible)\n")
+        f.write(f"  Model                 : y = (X/sqrt(p))*beta + noise (no intercept)\n")
+        f.write(f"  Convergence tolerance : 1e-8\n")
+        f.write(f"  Max iterations        : 1000\n")
+        f.write(f"  Random shuffling      : Yes (per iteration)\n\n")
         
-        f.write("【Important Implementation Details】\n")
-        f.write(f"  1. eta is p-dimensional vector (one scalar per coefficient)\n")
-        f.write(f"  2. Gradient: b = X[:,j]^T * r_cavity (no noise added here)\n")
-        f.write(f"  3. Soft-threshold: S(b - eta[j], lambda_1) / norm_x[j]\n")
-        f.write(f"  4. Random shuffling of coefficient indices per iteration\n\n")
+        f.write("【Sparsity Definition】\n")
+        f.write(f"  Formula               : rho_hat = ||beta||_0 / p\n")
+        f.write(f"  Range                 : 0 <= rho_hat <= 1\n")
+        f.write(f"  Interpretation        : Proportion of non-zero coefficients\n\n")
         
         f.write("【Results Summary】\n")
-        f.write(f"{'Noise Var':>12} | {'Opt lambda(no)':>14} | {'Test Err(no)':>12} | ")
-        f.write(f"{'Opt lambda(yes)':>15} | {'Test Err(yes)':>13} | {'Impact(%)':>10}\n")
-        f.write("-"*80 + "\n")
+        f.write(f"{'Noise Var':>12} | {'Opt λ(no)':>10} | {'Test Err(no)':>12} | "
+                f"{'Sparsity(no)':>12} | {'Opt λ(yes)':>10} | {'Test Err(yes)':>13} | "
+                f"{'Sparsity(yes)':>13} | {'Impact(%)':>10}\n")
+        f.write("-"*100 + "\n")
         
         for noise_var in noise_variance_values:
             res = all_results[noise_var]
@@ -682,21 +678,53 @@ if __name__ == "__main__":
             impact = ((res['avg_test_with'][idx_with] - res['avg_test_no'][idx_no]) / 
                      res['avg_test_no'][idx_no] * 100)
             
-            f.write(f"Sigma = {noise_var:>5.1f} | ")
-            f.write(f"{lambda_seq[idx_no]:>14.4f} | ")
+            f.write(f"Sigma={noise_var:>6.1f} | ")
+            f.write(f"{lambda_seq[idx_no]:>10.4f} | ")
             f.write(f"{res['avg_test_no'][idx_no]:>12.4f} | ")
-            f.write(f"{lambda_seq[idx_with]:>15.4f} | ")
+            f.write(f"{res['avg_sparse_no'][idx_no]:>12.4f} | ")
+            f.write(f"{lambda_seq[idx_with]:>10.4f} | ")
             f.write(f"{res['avg_test_with'][idx_with]:>13.4f} | ")
+            f.write(f"{res['avg_sparse_with'][idx_with]:>13.4f} | ")
             f.write(f"{impact:>+9.2f}\n")
         
         f.write("="*80 + "\n\n")
         
-        f.write("【Timestamp】\n")
-        f.write(f"  Experiment date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"  File timestamp : {timestamp}\n")
+        f.write("【Detailed Results for Each Noise Level】\n\n")
+        for noise_var in noise_variance_values:
+            res = all_results[noise_var]
+            idx_no = np.argmin(res['avg_test_no'])
+            idx_with = np.argmin(res['avg_test_with'])
+            
+            f.write(f"Sigma = {noise_var}\n")
+            f.write("-" * 40 + "\n")
+            f.write("Noise-free:\n")
+            f.write(f"  Optimal lambda        : {lambda_seq[idx_no]:.4f}\n")
+            f.write(f"  Training error        : {res['avg_train_no'][idx_no]:.4f}\n")
+            f.write(f"  Test error            : {res['avg_test_no'][idx_no]:.4f}\n")
+            f.write(f"  Error ratio           : {res['error_ratio_no'][idx_no]:.4f}\n")
+            f.write(f"  Sparsity ratio        : {res['avg_sparse_no'][idx_no]:.4f} "
+                   f"({int(res['avg_sparse_no'][idx_no]*p)}/{p} coefficients)\n\n")
+            
+            f.write("With noise:\n")
+            f.write(f"  Optimal lambda        : {lambda_seq[idx_with]:.4f}\n")
+            f.write(f"  Training error        : {res['avg_train_with'][idx_with]:.4f}\n")
+            f.write(f"  Test error            : {res['avg_test_with'][idx_with]:.4f}\n")
+            f.write(f"  Error ratio           : {res['error_ratio_with'][idx_with]:.4f}\n")
+            f.write(f"  Sparsity ratio        : {res['avg_sparse_with'][idx_with]:.4f} "
+                   f"({int(res['avg_sparse_with'][idx_with]*p)}/{p} coefficients)\n\n")
+        
+        f.write("="*80 + "\n")
+        f.write(f"Experiment completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"File timestamp: {timestamp}\n")
     
-    print(f"  Saved: {config_filename}")
+    print(f"  保存: {config_filename}")
     
     print("\n" + "="*70)
-    print("All experiments completed successfully!")
+    print("全てのファイルを保存しました！")
+    print("="*70)
+    print(f"\n保存先: results/")
+    print(f"  - PNG: CD_LASSO_Sigma*_{timestamp}.png (各ノイズレベル)")
+    print(f"  - PNG: CD_LASSO_AllSigma_comparison_{timestamp}.png (比較)")
+    print(f"  - CSV: CD_LASSO_Sigma*_{timestamp}.csv (各ノイズレベル)")
+    print(f"  - TXT: CD_LASSO_config_{timestamp}.txt (設定ファイル)")
     print("="*70)
