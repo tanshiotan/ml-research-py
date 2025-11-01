@@ -1,0 +1,42 @@
+================================================================================
+C/MATLAB Complete Compatible Coordinate Descent LASSO Experiment Config
+================================================================================
+
+【Data Configuration】
+  Training data size    : n = 500, p = 1000 (n/p = 0.50)
+  Test data size        : n_test = 1000
+  Sparsity ratio        : rho = 0.1
+  Number of experiments : 10
+
+【Regularization Configuration】
+  L1 regularization     : lambda in [1.0000, 15.8489] (35 points)
+  L2 regularization     : lambda_2 = 0.0
+
+【Noise Configuration】
+  Noise variance levels : Sigma = [1.0, 0.1]
+  Noise generation      : Fixed (same for all experiments)
+  Noise shape           : p-dimensional vector (C/MATLAB compatible)
+
+【Algorithm Configuration】
+  Method                : Cyclic Coordinate Descent (C/MATLAB exact)
+  Model                 : No intercept (y = X*beta)
+  Normalization         : Yes (X/sqrt(p))
+  Convergence tolerance : 1e-08
+  Max iterations        : 1000
+
+【Important Implementation Details】
+  1. eta is p-dimensional vector (one scalar per coefficient)
+  2. Gradient: b = X[:,j]^T * r_cavity (no noise added here)
+  3. Soft-threshold: S(b - eta[j], lambda_1) / norm_x[j]
+  4. Random shuffling of coefficient indices per iteration
+
+【Results Summary】
+   Noise Var | Opt lambda(no) | Test Err(no) | Opt lambda(yes) | Test Err(yes) |  Impact(%)
+--------------------------------------------------------------------------------
+Sigma =   1.0 |         1.0000 |       2.6577 |          2.6517 |        8.8140 |   +231.64
+Sigma =   0.1 |         1.0000 |       3.1183 |          1.0847 |        4.3286 |    +38.81
+================================================================================
+
+【Timestamp】
+  Experiment date: 2025-11-01 17:43:27
+  File timestamp : 20251101_174325
