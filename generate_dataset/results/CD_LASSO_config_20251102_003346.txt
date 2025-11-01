@@ -1,0 +1,76 @@
+================================================================================
+Coordinate Descent LASSO Experiment Configuration
+================================================================================
+
+【Data Configuration】
+  Training data size    : n = 500, p = 1000 (n/p = 0.50)
+  Test data size        : n_test = 1000
+  True sparsity ratio   : rho = 0.1 (100 non-zero coefficients)
+  Number of experiments : 1
+  Data noise variance   : sigma_y = 1.0
+
+【Regularization Configuration】
+  L1 regularization     : lambda in [0.0010, 1.0000] (50 points)
+  L2 regularization     : lambda_2 = 0.0
+
+【Privacy Noise Configuration】
+  Noise variance levels : Sigma = [0.1, 1.0]
+  Noise generation      : Fixed (same for all experiments)
+  Noise dimension       : p-dimensional vector (one scalar per coefficient)
+
+【Algorithm Configuration】
+  Method                : Cyclic Coordinate Descent (C/MATLAB compatible)
+  Model                 : y = (X/sqrt(p))*beta + noise (no intercept)
+  Convergence tolerance : 1e-8
+  Max iterations        : 1000
+  Random shuffling      : Yes (per iteration)
+
+【Sparsity Definition】
+  Formula               : rho_hat = ||beta||_0 / p
+  Range                 : 0 <= rho_hat <= 1
+  Interpretation        : Proportion of non-zero coefficients
+
+【Results Summary】
+   Noise Var |  Opt λ(no) | Test Err(no) | Sparsity(no) | Opt λ(yes) | Test Err(yes) | Sparsity(yes) |  Impact(%)
+----------------------------------------------------------------------------------------------------
+Sigma=   0.1 |     1.0000 |       1.1327 |       0.1080 |     1.0000 |        1.1355 |        0.1140 |     +0.25
+Sigma=   1.0 |     1.0000 |       1.1566 |       0.1110 |     1.0000 |     1635.2942 |        0.4990 | +141282.05
+================================================================================
+
+【Detailed Results for Each Noise Level】
+
+Sigma = 0.1
+----------------------------------------
+Noise-free:
+  Optimal lambda        : 1.0000
+  Training error        : 0.7208
+  Test error            : 1.1327
+  Error ratio           : 1.5714
+  Sparsity ratio        : 0.1080 (108/1000 coefficients)
+
+With noise:
+  Optimal lambda        : 1.0000
+  Training error        : 0.7147
+  Test error            : 1.1355
+  Error ratio           : 1.5888
+  Sparsity ratio        : 0.1140 (114/1000 coefficients)
+
+Sigma = 1.0
+----------------------------------------
+Noise-free:
+  Optimal lambda        : 1.0000
+  Training error        : 0.6630
+  Test error            : 1.1566
+  Error ratio           : 1.7445
+  Sparsity ratio        : 0.1110 (111/1000 coefficients)
+
+With noise:
+  Optimal lambda        : 1.0000
+  Training error        : 2.4680
+  Test error            : 1635.2942
+  Error ratio           : 662.5987
+  Sparsity ratio        : 0.4990 (499/1000 coefficients)
+
+================================================================================
+Experiment completed at: 2025-11-02 00:33:48
+File timestamp: 20251102_003346
